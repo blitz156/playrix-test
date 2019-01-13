@@ -1,0 +1,8 @@
+version: '2'
+services:
+  playrix:
+    build: .
+    command: python3 playrix_run.py # use this for normal run
+#    command: python3 playrix_test.py # use this for run test
+    volumes:
+     - ./src:/app/user
