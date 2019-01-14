@@ -12,24 +12,27 @@ COHORT_ANALYSIS_FILTERS = {
 # Функция, которая подсчитывает RPI на промежуток заданный delta,
 # При этом начальная дата - дата из наших фильров
 # Конечная дата - начальная дата + промежуток delta
-def _get_rpi_by_date_range(installs_aggregations, purchases, delta):
-    # Фильтруем покупки:
-    # 1. Дата устанвки игры более заданной в фильтрах значением date__gt
-    # 2. Дата устанвки игры менее заданной в фильтрах значением date__lt
-    # 3. Дата покупки более заданной в фильтрах значением date__gt
-    # 4. Дата покупки менее заданной в фильтрах значением date__gt + delta
+def _get_rpi_by_date_range(installs_aggregations, purchases, delta, filters):
+    # Фильтруем покупки в цикле:
+    # 1. День установки поочередно каждый в промежутке фильтрации
+    # 2. Дата покупки начиная с фильтруемого дня в п.1
+    # 3. Дата покупки менее даты п.1 + delta days
+    filtered_purchases = [
+        purchases
+            [purchases['install_date'] >= filters['date__gt'] + datetime.timedelta(index)] \
+            [purchases['install_date'] < filters['date__gt'] + datetime.timedelta(index + 1)] \
+            [purchases['created'] >= filters['date__gt'] + datetime.timedelta(index)]  \
+            [purchases['created'] < filters['date__gt'] + datetime.timedelta(delta + index)]
+        for index in range(0, (filters['date__lt'] - filters['date__gt']).days)
+    ]
+    filtered_purchases = pd.concat(filtered_purchases)
+
     # Группируем по стране и считаем сумму покупок
-    result = \
-        purchases[purchases['install_date'] >= COHORT_ANALYSIS_FILTERS['date__gt']] \
-        [purchases['install_date'] < COHORT_ANALYSIS_FILTERS['date__lt']] \
-        [purchases['created'] >= COHORT_ANALYSIS_FILTERS['date__gt']] \
-        [purchases['created'] < COHORT_ANALYSIS_FILTERS['date__gt'] + datetime.timedelta(delta)] \
-            .groupby(['country'], as_index=False) \
-            .agg({'revenue': 'sum'}) \
-            .rename(columns={'revenue': 'RPI{}'.format(delta)})
+    result = filtered_purchases.groupby(['country'], as_index=False) \
+        .agg({'revenue': 'sum'}) \
+        .rename(columns={'revenue': 'RPI{}'.format(delta)})
 
     # Вычисляем RPI, где RPI = сумма покупок за период / количество всех установок для конкретной старны
-    # P.S. Вообще согласно задания RPI должен считаться иначе, но не вижу никакой привязки покупок к конкретным пользователям
     for index, row in result.iterrows():
         result.set_value(
             index,
@@ -44,8 +47,8 @@ def create_cohort_analysis(installs_file, purchases_file):
     installs = pd.read_csv(installs_file, parse_dates=['created'])
     purchases = pd.read_csv(purchases_file, parse_dates=['created', 'install_date'])
 
-    purchases = purchases[purchases['mobile_app'] == 2]
-    installs = installs[installs['mobile_app'] == 2]
+    purchases = purchases[purchases['mobile_app'] == COHORT_ANALYSIS_FILTERS['mobile_app']]
+    installs = installs[installs['mobile_app'] == COHORT_ANALYSIS_FILTERS['mobile_app']]
 
     # Подсчитываем количество установок в каждой стране
     installs_aggregations = \
@@ -55,7 +58,7 @@ def create_cohort_analysis(installs_file, purchases_file):
             .rename(columns={'created': 'installs'})[['country', 'installs']]
 
     # Посчитываем RPI{X}
-    rpi_array = [_get_rpi_by_date_range(installs_aggregations, purchases, i) for i in range(1, 11)]
+    rpi_array = [_get_rpi_by_date_range(installs_aggregations, purchases, i, COHORT_ANALYSIS_FILTERS) for i in range(1, 11)]
 
     # Мержим результаты
     result = installs_aggregations
